@@ -665,8 +665,28 @@ _CONFIGS = [
         # Below you can define other hyperparameters like the learning rate, number of training steps, etc.
         # Check the base TrainConfig class for a full list of available hyperparameters.
         num_train_steps=30_000,
-        wandb_enabled=False,
         pytorch_weight_path="/mnt/models/openpi-assets/checkpoints/pi0_base_pytorch",
+    ),
+    TrainConfig(
+        name="pi0_libero_new",
+        model=pi0_config.Pi0Config(action_horizon=10),
+        data=LeRobotLiberoDataConfig(
+            repo_id="/mnt/data/lerobot/test/libero",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+        ),
+        batch_size=256,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
+        pytorch_weight_path="/mnt/models/openpi-assets/checkpoints/pi0_base_pytorch",
+        num_train_steps=30_000,
     ),
     TrainConfig(
         name="pi0_libero_low_mem_finetune",
