@@ -13,6 +13,7 @@ from openpi_client import image_tools
 from openpi_client import websocket_client_policy as _websocket_client_policy
 import tqdm
 import tyro
+import time
 
 LIBERO_DUMMY_ACTION = [0.0] * 6 + [-1.0]
 LIBERO_ENV_RESOLUTION = 256  # resolution used to render training data
@@ -40,7 +41,9 @@ class Args:
     #################################################################################################################
     # Utils
     #################################################################################################################
-    video_out_path: str = "data/libero/videos"  # Path to save videos
+    out_path: str = "data/"  # Path to save videos
+    save_name: str = ""
+    save_videos: bool = False  # Whether to save videos of the evaluation
 
     seed: int = 7  # Random Seed (for reproducibility)
 
@@ -49,13 +52,17 @@ def eval_libero(args: Args) -> None:
     # Set random seed
     np.random.seed(args.seed)
 
+    assert args.save_name != "", "Please provide a save name for the evaluation run."
+
     # Initialize LIBERO task suite
     benchmark_dict = benchmark.get_benchmark_dict()
     task_suite = benchmark_dict[args.task_suite_name]()
     num_tasks_in_suite = task_suite.n_tasks
     logging.info(f"Task suite: {args.task_suite_name}")
 
-    pathlib.Path(args.video_out_path).mkdir(parents=True, exist_ok=True)
+    if args.save_videos:
+        video_out_path = pathlib.Path(args.out_path) / "videos" / args.save_name / args.task_suite_name
+        video_out_path.mkdir(parents=True, exist_ok=True)
 
     if args.task_suite_name == "libero_spatial":
         max_steps = 220  # longest training demo has 193 steps
@@ -100,7 +107,7 @@ def eval_libero(args: Args) -> None:
             t = 0
             replay_images = []
 
-            logging.info(f"Starting episode {task_episodes+1}...")
+            logging.info(f"Starting episode {task_episodes + 1}...")
             while t < max_steps + args.num_steps_wait:
                 try:
                     # IMPORTANT: Do nothing for the first few timesteps because the simulator drops objects
@@ -166,12 +173,14 @@ def eval_libero(args: Args) -> None:
 
             # Save a replay video of the episode
             suffix = "success" if done else "failure"
-            task_segment = task_description.replace(" ", "_")
-            imageio.mimwrite(
-                pathlib.Path(args.video_out_path) / f"rollout_{task_segment}_{suffix}.mp4",
-                [np.asarray(x) for x in replay_images],
-                fps=10,
-            )
+            if args.save_videos:
+                task_segment = task_description.replace(" ", "_")
+                time_suffix = str(time.time())[-4:]
+                imageio.mimwrite(
+                    video_out_path / f"rollout_{task_segment}_{time_suffix}_{suffix}.mp4",
+                    [np.asarray(x) for x in replay_images],
+                    fps=10,
+                )
 
             # Log current results
             logging.info(f"Success: {done}")
@@ -184,6 +193,16 @@ def eval_libero(args: Args) -> None:
 
     logging.info(f"Total success rate: {float(total_successes) / float(total_episodes)}")
     logging.info(f"Total episodes: {total_episodes}")
+
+    # Save results to a txt file
+    (pathlib.Path(args.out_path) / "results").mkdir(parents=True, exist_ok=True)
+    results_path = pathlib.Path(args.out_path) / "results" / f"{args.save_name}_results.txt"
+    with open(results_path, "a") as f:
+        f.write(f"Task suite: {args.task_suite_name}\n")
+        f.write(f"Total episodes: {total_episodes}\n")
+        f.write(f"Total successes: {total_successes}\n")
+        f.write(f"Success rate: {float(total_successes) / float(total_episodes)}\n")
+        f.write("\n")
 
 
 def _get_libero_env(task, resolution, seed):
