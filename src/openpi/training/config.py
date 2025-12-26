@@ -303,15 +303,18 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
             inputs=[
                 _transforms.RepackTransform(
                     {
-                        "observation/image": "image",
-                        "observation/wrist_image": "wrist_image",
-                        "observation/state": "state",
-                        "actions": "actions",
+                        "observation/image": "observation.images.image",
+                        "observation/wrist_image": "observation.images.wrist_image",
+                        "observation/state": "observation.state",
+                        "actions": "action",
                         "prompt": "prompt",
                     }
                 )
             ]
         )
+
+        # Action keys that will be used to read the action sequence from the dataset.
+        action_sequence_keys: Sequence[str] = ("action",)
 
         # The data transforms are applied to the data coming from the dataset *and* during inference.
         # Below, we define the transforms for data going into the model (``inputs``) and the transforms
@@ -353,6 +356,8 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
             repack_transforms=repack_transform,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
+            action_sequence_keys=action_sequence_keys,
+            use_quantile_norm=False,
         )
 
 
@@ -828,7 +833,7 @@ _CONFIGS = [
         name="pi05_libero",
         model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
         data=LeRobotLiberoDataConfig(
-            repo_id="/mnt/data/lerobot/test/libero",
+            repo_id="/mnt/data/lerobot/test/libero_spatial_no_noops_1.0.0_lerobot",
             base_config=DataConfig(prompt_from_task=True),
             extra_delta_transform=False,
         ),
@@ -1018,28 +1023,72 @@ _CONFIGS = [
         name="pi0_agilex",
         model=pi0_config.Pi0Config(),
         data=LeRobotAgilexDataConfig(
+            repo_id="/mnt/data/lerobot/test/get_tissue_1223",
+            base_config=DataConfig(prompt_from_task=True),
+            assets=AssetsConfig(asset_id="get_tissue_1223"),
+        ),
+        batch_size=128,
+        num_workers=8,
+        weight_loader=weight_loaders.CheckpointWeightLoader("/mnt/models/openpi-assets/checkpoints/pi0_base/params"),
+        num_train_steps=50_000,
+        save_interval=10_000,
+        pytorch_weight_path="/mnt/models/openpi-assets/checkpoints/pi0_base_pytorch",
+    ),
+    TrainConfig(
+        name="pi0_agilex_vlm",
+        model=pi0_config.Pi0Config(),
+        data=LeRobotAgilexDataConfig(
             repo_id="/mnt/data/lerobot/test/pick_beverage_1218",
             base_config=DataConfig(prompt_from_task=True),
             assets=AssetsConfig(asset_id="pick_beverage_1218"),
         ),
         batch_size=128,
         num_workers=8,
-        weight_loader=weight_loaders.CheckpointWeightLoader("/mnt/models/openpi-assets/checkpoints/pi0_base/params"),
-        num_train_steps=100_000,
+        weight_loader=weight_loaders.PaliGemmaWeightLoader(),
+        num_train_steps=50_000,
         save_interval=10_000,
     ),
     TrainConfig(
         name="pi05_agilex",
         model=pi0_config.Pi0Config(pi05=True),
         data=LeRobotAgilexDataConfig(
-            repo_id="/mnt/data/lerobot/test/pick_tissue_1216",
+            repo_id="/mnt/data/lerobot/test/throw_rubbish_1222",
             base_config=DataConfig(prompt_from_task=True),
-            assets=AssetsConfig(asset_id="pick_tissue_1216"),
+            assets=AssetsConfig(asset_id="throw_rubbish_1222"),
         ),
         batch_size=128,
         num_workers=8,
         weight_loader=weight_loaders.CheckpointWeightLoader("/mnt/models/openpi-assets/checkpoints/pi05_base/params"),
-        num_train_steps=100_000,
+        num_train_steps=50_000,
+        save_interval=10_000,
+        pytorch_weight_path="/mnt/models/openpi-assets/checkpoints/pi05_base_pytorch",
+    ),
+    TrainConfig(
+        name="pi05_agilex_nostate",
+        model=pi0_config.Pi0Config(pi05=True, discrete_state_input=False),
+        data=LeRobotAgilexDataConfig(
+            repo_id="/mnt/data/lerobot/test/pick_beverage_1218",
+            base_config=DataConfig(prompt_from_task=True),
+            assets=AssetsConfig(asset_id="pick_beverage_1218"),
+        ),
+        batch_size=128,
+        num_workers=8,
+        weight_loader=weight_loaders.CheckpointWeightLoader("/mnt/models/openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=50_000,
+        save_interval=10_000,
+    ),
+    TrainConfig(
+        name="pi05_agilex_vlm",
+        model=pi0_config.Pi0Config(pi05=True),
+        data=LeRobotAgilexDataConfig(
+            repo_id="/mnt/data/lerobot/test/pick_beverage_1218",
+            base_config=DataConfig(prompt_from_task=True),
+            assets=AssetsConfig(asset_id="pick_beverage_1218"),
+        ),
+        batch_size=128,
+        num_workers=8,
+        weight_loader=weight_loaders.PaliGemmaWeightLoader(),
+        num_train_steps=50_000,
         save_interval=10_000,
     ),
     #

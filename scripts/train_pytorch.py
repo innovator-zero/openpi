@@ -408,13 +408,13 @@ def train_loop(config: _config.TrainConfig):
 
     model = openpi.models_pytorch.pi0_pytorch.PI0Pytorch(model_cfg).to(device)
 
-    if hasattr(model, "gradient_checkpointing_enable"):
-        enable_gradient_checkpointing = True
-        model.gradient_checkpointing_enable()
-        logging.info("Enabled gradient checkpointing for memory optimization")
-    else:
-        enable_gradient_checkpointing = False
-        logging.info("Gradient checkpointing is not supported for this model")
+    # if hasattr(model, "gradient_checkpointing_enable"):
+    #     enable_gradient_checkpointing = True
+    #     model.gradient_checkpointing_enable()
+    #     logging.info("Enabled gradient checkpointing for memory optimization")
+    # else:
+    enable_gradient_checkpointing = False
+    logging.info("Gradient checkpointing is not supported for this model")
 
     # Log initial memory usage after model creation
     if is_main and torch.cuda.is_available():
