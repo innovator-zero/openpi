@@ -1,5 +1,5 @@
 source examples/libero/.venv/bin/activate
-
+export LIBERO_CONFIG_PATH=$PWD/third_party/libero
 export PYTHONPATH=$PYTHONPATH:$PWD/third_party/libero
 
 TASK_SUITE=$1

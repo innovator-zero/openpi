@@ -19,6 +19,12 @@ LIBERO_DUMMY_ACTION = [0.0] * 6 + [-1.0]
 LIBERO_ENV_RESOLUTION = 256  # resolution used to render training data
 
 
+def _binarize_gripper_open(open_val: float) -> float:
+    # convert from 0 close 1 open to 1 close -1 open
+    bin_val = 1.0 - 2.0 * (open_val > 0.5)
+    return bin_val
+
+
 @dataclasses.dataclass
 class Args:
     #################################################################################################################
@@ -155,9 +161,11 @@ def eval_libero(args: Args) -> None:
                         action_plan.extend(action_chunk[: args.replan_steps])
 
                     action = action_plan.popleft()
+                    gripper = _binarize_gripper_open(action[-1])
+                    action = action[:-1].tolist() + [gripper]
 
                     # Execute action in environment
-                    obs, reward, done, info = env.step(action.tolist())
+                    obs, reward, done, info = env.step(action)
                     if done:
                         task_successes += 1
                         total_successes += 1
