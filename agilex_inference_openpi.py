@@ -4,10 +4,13 @@
 """
 
 import argparse
+import select
+import sys
+import termios
 import threading
 import time
+import tty
 from collections import deque
-from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -30,6 +33,41 @@ INSTRUCTION = "Place a pack of tissue paper in the plastic basket."
 # INSTRUCTION = "Pick up the beverage and put it in the plastic basket."
 
 observation_window = None
+
+# Global flag for interactive mode
+interactive_mode_flag = False
+
+
+def check_keyboard_input():
+    """Check if a key was pressed without blocking."""
+    if select.select([sys.stdin], [], [], 0)[0]:
+        return sys.stdin.read(1)
+    return None
+
+
+def handle_interactive_mode():
+    """
+    Handle interactive mode when space is pressed.
+    Returns: 'continue' to resume, 'reset' to restart from beginning
+    """
+    print("\n" + "=" * 50)
+    print("INTERACTIVE MODE")
+    print("  'c' - Continue running")
+    print("  'r' - Reset to starting point and restart")
+    print("  'q' - Quit/Stop")
+    print("=" * 50)
+
+    while True:
+        key = sys.stdin.read(1).lower()
+        if key == "c":
+            print("Continuing...")
+            return "continue"
+        elif key == "r":
+            print("Restarting...")
+            return "reset"
+        elif key == "q":
+            print("Stopping...")
+            return "quit"
 
 
 class OpenpiInference:
@@ -256,30 +294,46 @@ def model_inference(args, config, ros_operator):
     input("Press enter to continue")
     ros_operator.puppet_arm_publish_continuous(left0, right0)
 
-    # Inference loop
-    while True and not rospy.is_shutdown():
-        # The current time step
-        t = 0
-        rate = rospy.Rate(args.publish_rate)
+    # Set terminal to raw mode for non-blocking keyboard input
+    old_settings = termios.tcgetattr(sys.stdin)
+    tty.setcbreak(sys.stdin.fileno())
 
-        action_buffer = np.zeros([chunk_size, config["state_dim"]])
+    print("\nPress SPACE during inference to enter interactive mode")
 
-        while t < max_publish_step and not rospy.is_shutdown():
-            # Update observation window
-            update_observation_window(args, config, ros_operator)
+    try:
+        # Inference loop
+        while True and not rospy.is_shutdown():
+            # The current time step
+            t = 0
+            rate = rospy.Rate(args.publish_rate)
 
-            # When coming to the end of the action chunk
-            if t % chunk_size == 0:
-                # Start inference
-                action_buffer = inference_fn(args, config, policy).copy()
+            action_buffer = np.zeros([chunk_size, config["state_dim"]])
 
-            raw_action = action_buffer[t % chunk_size]
-            actions = raw_action[np.newaxis, :]
-            # Execute the interpolated actions one by one
-            # print(actions)
-            # import pdb; pdb.set_trace()
+            while t < max_publish_step and not rospy.is_shutdown():
+                # Check for keyboard input (space to enter interactive mode)
+                key = check_keyboard_input()
+                if key == " ":
+                    result = handle_interactive_mode()
+                    if result == "reset":
+                        # Reset to starting position
+                        ros_operator.puppet_arm_publish_continuous(left0, right0)
+                        time.sleep(1)
+                        break  # Break inner loop to restart
+                    elif result == "quit":
+                        return  # Exit the function entirely
+                    # 'continue' just resumes the loop
 
-            for act in actions:
+                # Update observation window
+                update_observation_window(args, config, ros_operator)
+
+                # When coming to the end of the action chunk
+                if t % chunk_size == 0:
+                    # Start inference
+                    action_buffer = inference_fn(args, config, policy).copy()
+
+                raw_action = action_buffer[t % chunk_size]
+                act = raw_action
+
                 if args.ctrl_type == "joint":
                     left_action = act[:7]
                     right_action = act[7:14]
@@ -299,9 +353,12 @@ def model_inference(args, config, ros_operator):
                     vel_action = act[14:16]
                     ros_operator.robot_base_publish(vel_action)
                 rate.sleep()
-            t += 1
 
-            print("Published Step", t)
+                t += 1
+                print("Published Step", t)
+    finally:
+        # Restore terminal settings
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
 
 
 # ROS operator class
@@ -883,7 +940,7 @@ def get_arguments():
         action="store",
         type=float,
         help="The maximum change allowed for each joint per timestep",
-        default=[0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.2],
+        default=[0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.2],
         required=False,
     )
     parser.add_argument(
