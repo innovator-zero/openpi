@@ -35,12 +35,19 @@ class AlohaInputs(transforms.DataTransformFn):
     # the space used by the pi internal runtime which was used to train the base model.
     adapt_to_pi: bool = True
 
+    use_ee_pose: bool = False
+
     # The expected cameras names. All input cameras must be in this set. Missing cameras will be
     # replaced with black images and the corresponding `image_mask` will be set to False.
-    EXPECTED_CAMERAS: ClassVar[tuple[str, ...]] = ("cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist")
+    EXPECTED_CAMERAS: ClassVar[tuple[str, ...]] = (
+        "cam_high",
+        "cam_low",
+        "cam_left_wrist",
+        "cam_right_wrist",
+    )
 
     def __call__(self, data: dict) -> dict:
-        data = _decode_aloha(data, adapt_to_pi=self.adapt_to_pi)
+        data = _decode_aloha(data, adapt_to_pi=self.adapt_to_pi, use_ee_pose=self.use_ee_pose)
 
         in_images = data["images"]
         if set(in_images) - set(self.EXPECTED_CAMERAS):
@@ -69,17 +76,57 @@ class AlohaInputs(transforms.DataTransformFn):
                 images[dest] = np.zeros_like(base_image)
                 image_masks[dest] = np.False_
 
+        # from PIL import Image
+        # print(base_image.shape, base_image.max(), type(base_image))
+        # Image.fromarray(base_image).save('img_front.png')
+        # Image.fromarray(in_images['cam_left_wrist']).save('img_left.png')
+        # Image.fromarray(in_images['cam_right_wrist']).save('img_right.png')
+        # exit()
+        # print(data["action.joints"])
         inputs = {
             "image": images,
             "image_mask": image_masks,
             "state": data["state"],
         }
-
+        # np.concatenate([data["state.joints"], data["state.gripper"]], axis=0)
+        # import ipdb;ipdb.set_trace()
         # Actions are only available during training.
-        if "actions" in data:
-            actions = np.asarray(data["actions"])
+        if self.use_ee_pose and "action.ee_pos" in data:
+            actions = np.concatenate(
+                [
+                    data["action.ee_pos"][..., :3],
+                    data["action.ee_rot"][..., :3],
+                    data["action.gripper_w"][..., :1],
+                    data["action.ee_pos"][..., 3:],
+                    data["action.ee_rot"][..., 3:],
+                    data["action.gripper_w"][..., 1:],
+                ],
+                axis=-1,
+            )[1:]
+
             actions = _encode_actions_inv(actions, adapt_to_pi=self.adapt_to_pi)
             inputs["actions"] = actions
+
+        elif "action.joints" in data:
+            # data["action.gripper_w"][data["action.gripper_w"] < 0.001] = -0.1
+            # data["action.gripper_w"][data["action.gripper_w"] > 0.001] = 0.6
+
+            actions = np.concatenate(
+                [
+                    data["action.joints"][..., :6],
+                    data["action.gripper_w"][..., :1],
+                    data["action.joints"][..., 6:],
+                    data["action.gripper_w"][..., 1:],
+                ],
+                axis=-1,
+            )[1:]
+            actions = _encode_actions_inv(actions, adapt_to_pi=self.adapt_to_pi)
+            # if adapt_to_pi:
+            #     actions = _joint_flip_mask() * actions
+            #     actions[:, [6, 13]] = _gripper_from_angular_inv(actions[:, [6, 13]])
+            inputs["actions"] = actions
+        # print(inputs["actions"][:1], inputs["state"])
+        # import ipdb;ipdb.set_trace()
 
         if "prompt" in data:
             inputs["prompt"] = data["prompt"]
@@ -156,11 +203,34 @@ def _gripper_from_angular_inv(value):
     return value - 0.5476
 
 
-def _decode_aloha(data: dict, *, adapt_to_pi: bool = False) -> dict:
+def _decode_aloha(data: dict, *, adapt_to_pi: bool = False, use_ee_pose: bool = False) -> dict:
     # state is [left_arm_joint_angles, left_arm_gripper, right_arm_joint_angles, right_arm_gripper]
     # dim sizes: [6, 1, 6, 1]
-    state = np.asarray(data["state"])
-    state = _decode_state(state, adapt_to_pi=adapt_to_pi)
+    # np.concatenate([data["state.joints"][...,:6], data["state.gripper"][...,:1],data["state.joints"][...,6:], data["state.gripper"][...,1:]], axis=0)
+    # import ipdb;ipdb.set_trace()
+    if not use_ee_pose:
+        state = np.concatenate(
+            [
+                data["state.joints"][..., :6],
+                data["state.gripper_w"][..., :1],
+                data["state.joints"][..., 6:],
+                data["state.gripper_w"][..., 1:],
+            ],
+            axis=-1,
+        )
+        state = _decode_state(state, adapt_to_pi=adapt_to_pi)
+    else:
+        state = np.concatenate(
+            [
+                data["state.ee_pos"][..., :3],
+                data["state.ee_rot"][..., :3],
+                data["state.gripper_w"][..., :1],
+                data["state.ee_pos"][..., 3:],
+                data["state.ee_rot"][..., 3:],
+                data["state.gripper_w"][..., 1:],
+            ],
+            axis=-1,
+        )
 
     def convert_image(img):
         img = np.asarray(img)
@@ -171,8 +241,9 @@ def _decode_aloha(data: dict, *, adapt_to_pi: bool = False) -> dict:
         return einops.rearrange(img, "c h w -> h w c")
 
     images = data["images"]
-    images_dict = {name: convert_image(img) for name, img in images.items()}
-
+    images_dict = {
+        name: convert_image(img) if len(img.shape) == 3 else convert_image(img[0])[None] for name, img in images.items()
+    }
     data["images"] = images_dict
     data["state"] = state
     return data

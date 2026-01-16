@@ -21,6 +21,8 @@ class EnvMode(enum.Enum):
     ALOHA_SIM = "aloha_sim"
     DROID = "droid"
     LIBERO = "libero"
+    AGILEX = "agilex"
+    AGILEX_SH = "agilex_sh"
 
 
 @dataclasses.dataclass
@@ -120,6 +122,8 @@ def main(args: Args) -> None:
         EnvMode.ALOHA_SIM: _random_observation_aloha,
         EnvMode.DROID: _random_observation_droid,
         EnvMode.LIBERO: _random_observation_libero,
+        EnvMode.AGILEX: _random_observation_agilex,
+        EnvMode.AGILEX_SH: _random_observation_agilex_sh,
     }[args.env]
 
     policy = _websocket_client_policy.WebsocketClientPolicy(
@@ -178,6 +182,31 @@ def _random_observation_libero() -> dict:
         "observation/state": np.random.rand(8),
         "observation/image": np.random.randint(256, size=(224, 224, 3), dtype=np.uint8),
         "observation/wrist_image": np.random.randint(256, size=(224, 224, 3), dtype=np.uint8),
+        "prompt": "do something",
+    }
+
+
+def _random_observation_agilex() -> dict:
+    return {
+        "state": np.ones((14,)),
+        "images": {
+            "cam_high": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
+            "cam_left_wrist": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
+            "cam_right_wrist": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
+        },
+        "prompt": "do something",
+    }
+
+
+def _random_observation_agilex_sh() -> dict:
+    return {
+        "state.joints": np.ones((12,)),
+        "state.gripper_w": np.ones((2,)),
+        "images": {
+            "cam_high": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
+            "cam_left_wrist": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
+            "cam_right_wrist": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
+        },
         "prompt": "do something",
     }
 

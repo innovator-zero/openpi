@@ -524,6 +524,83 @@ class LeRobotAgilexDataConfig(DataConfigFactory):
 
 
 @dataclasses.dataclass(frozen=True)
+class LeRobotAgxDataConfig(DataConfigFactory):
+    # If true, will convert joint dimensions to deltas with respect to the current state before passing to the model.
+    # Gripper dimensions will remain in absolute values.
+    use_delta_joint_actions: bool = True
+    # If provided, will be injected into the input data if the "prompt" key is not present.
+    default_prompt: str | None = None
+    # If true, this will convert the joint and gripper values from the standard Aloha space to
+    # the space used by the pi internal runtime which was used to train the base model. People who
+    # use standard Aloha data should set this to true.
+    adapt_to_pi: bool = True
+    # set_fps: int = 0
+
+    # Repack transforms.
+    repack_transforms: tyro.conf.Suppress[_transforms.Group] = dataclasses.field(
+        default=_transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "images": {
+                            "cam_high": "observation.images.cam_high",
+                            "cam_left_wrist": "observation.images.cam_left_wrist",
+                            "cam_right_wrist": "observation.images.cam_right_wrist",
+                        },
+                        "state": "observation.state",
+                        "actions": "action",
+                    }
+                )
+            ]
+        )
+    )
+    # Action keys that will be used to read the action sequence from the dataset.
+    action_sequence_keys: Sequence[str] = ("action.joints", "action.gripper_w")
+    # action_sequence_keys: Sequence[str] = ("action", )
+    # action_sequence_keys: Sequence[str] = ("state.joints", "state.gripper_w")
+    # 'action.joints': tensor([-0.1273,  0.6375, -0.5383,  0.2287,  0.0410, -0.1265,  0.5302,  1.1633,
+    # -0.9376,  0.7143, -0.2371, -0.7625]), 'action.base_joints': tensor([0., 0.]), 'action.ee_pos': tensor([0., 0.]), 'action.ee_rot': tensor([0., 0.]), 'action.gripper': tensor([0., 0.]), 'action.gripper_w': tensor([-0.0027, -0.0032]), 'timestamp': tensor(0.), 'frame_index': tensor(0), 'episode_index': tensor(0), 'index': tensor(0), 'task_index': tensor(0), 'task': 'fold cloth'}
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        data_transforms = _transforms.Group(
+            inputs=[aloha_policy.AlohaInputs(adapt_to_pi=self.adapt_to_pi, use_ee_pose=False)],
+            outputs=[aloha_policy.AlohaOutputs(adapt_to_pi=self.adapt_to_pi)],
+        )
+        if self.use_delta_joint_actions:
+            delta_action_mask = _transforms.make_bool_mask(6, -1, 6, -1)
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=self.repack_transforms,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
+            # set_fps=self.set_fps,
+        )
+
+    def _load_norm_stats(self, assets_dir: epath.Path, asset_id: str | None) -> dict[str, _transforms.NormStats] | None:
+        if asset_id is None:
+            return None
+        try:
+            # import ipdb;ipdb.set_trace()
+            data_assets_dir = str(assets_dir)
+            print(assets_dir)
+            norm_stats = _normalize.load(_download.maybe_download(data_assets_dir))
+            logging.info(f"Loaded norm stats from {data_assets_dir}")
+            return norm_stats
+        except FileNotFoundError:
+            logging.info(f"Norm stats not found in {data_assets_dir}, skipping.")
+        return None
+
+
+@dataclasses.dataclass(frozen=True)
 class TrainConfig:
     # Name of the config. Must be unique. Will be used to reference this config.
     name: tyro.conf.Suppress[str]
@@ -1090,6 +1167,41 @@ _CONFIGS = [
         weight_loader=weight_loaders.PaliGemmaWeightLoader(),
         num_train_steps=50_000,
         save_interval=10_000,
+    ),
+    TrainConfig(
+        name="pi05_agx_fold_clothes_all_fast_8",
+        model=pi0_config.Pi0Config(pi05=True),
+        data=LeRobotAgxDataConfig(
+            repo_id=[],
+            assets=AssetsConfig(
+                assets_dir="gs://openpi-assets/checkpoints/pi05_base/assets",
+                asset_id="trossen",
+            ),
+            default_prompt="fold clothes",
+            repack_transforms=_transforms.Group(
+                inputs=[
+                    _transforms.RepackTransform(
+                        {
+                            "images": {
+                                "cam_high": "global_image",
+                                "cam_left_wrist": "left_image",
+                                "cam_right_wrist": "right_image",
+                            },
+                            "state.joints": "state.joints",
+                            "state.gripper_w": "state.gripper_w",
+                            "action.joints": "action.joints",
+                            "action.gripper_w": "action.gripper_w",
+                        }
+                    )
+                ]
+            ),
+            # set_fps=15,
+            # use_delta_joint_actions=False,
+        ),
+        keep_period=5000,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=90000,
+        batch_size=128,
     ),
     #
     # Debugging configs.

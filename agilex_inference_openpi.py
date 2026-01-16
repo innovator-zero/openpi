@@ -28,9 +28,11 @@ from openpi_client import image_tools
 from openpi_client import websocket_client_policy
 
 CAMERA_NAMES = ["cam_high", "cam_right_wrist", "cam_left_wrist"]
-# INSTRUCTION = "Place a carton of lemon tea in the plastic basket."
-INSTRUCTION = "Place a pack of tissue paper in the plastic basket."
+# INSTRUCTION = "Pick up a pack of tissue paper and put it in the plastic basket."
 # INSTRUCTION = "Pick up the beverage and put it in the plastic basket."
+# INSTRUCTION = "Pick up the trash and throw it in the trash bin."
+# INSTRUCTION = "Take a napkin and put it on the table."
+INSTRUCTION = "Fold the towel."
 
 observation_window = None
 
@@ -172,12 +174,6 @@ def get_ros_observation(args, ros_operator):
 
 # Update the observation window buffer
 def update_observation_window(args, config, ros_operator):
-    # JPEG transformation
-    def jpeg_mapping(img):
-        img = cv2.imencode(".jpg", img)[1].tobytes()
-        img = cv2.imdecode(np.frombuffer(img, np.uint8), cv2.IMREAD_COLOR)
-        return img
-
     global observation_window
     if observation_window is None:
         observation_window = deque(maxlen=2)
@@ -198,9 +194,6 @@ def update_observation_window(args, config, ros_operator):
     img_front, img_left, img_right, puppet_arm_left, puppet_arm_right, endpose_left, endpose_right = (
         get_ros_observation(args, ros_operator)
     )
-    img_front = jpeg_mapping(img_front)
-    img_left = jpeg_mapping(img_left)
-    img_right = jpeg_mapping(img_right)
 
     qpos = np.concatenate(
         (np.array(puppet_arm_left.position), np.array(puppet_arm_right.position)),
@@ -281,15 +274,26 @@ def model_inference(args, config, ros_operator):
     # left0 = [-0.44922745, 0.5082583, -1.0291806, 0.05915684, 0.79456437, -0.11905055, 0.092]
     # right0 = [0.40189838, 0.5602516, -1.1094662, -0.03117958, 0.84036225, 0.01538969, 0.092]
     left0 = [
-        0.019018182530999184,
-        0.012861635535955429,
-        0.00303525454364717,
-        -0.011742103844881058,
-        0.3368959128856659,
-        0.16290798783302307,
-        0,
+        -0.00133514404296875,
+        0.00209808349609375,
+        0.01583099365234375,
+        -0.032616615295410156,
+        -0.00286102294921875,
+        0.00095367431640625,
+        3.557830810546875,
     ]
-    right0 = [0, 0.32, -0.36, 0, 0.24, 0, 0]
+    right0 = [
+        -0.00133514404296875,
+        0.00438690185546875,
+        0.034523963928222656,
+        -0.053597450256347656,
+        -0.00476837158203125,
+        -0.00209808349609375,
+        3.557830810546875,
+    ]
+    # left0 = [0.02, 0.01, 0, 0, 0.34, 0.16, 0]
+    # right0 = [0, 0.32, -0.36, 0, 0.24, 0, 0.1]
+
     ros_operator.puppet_arm_publish_continuous(left0, right0)
     input("Press enter to continue")
     ros_operator.puppet_arm_publish_continuous(left0, right0)
@@ -317,7 +321,7 @@ def model_inference(args, config, ros_operator):
                     if result == "reset":
                         # Reset to starting position
                         ros_operator.puppet_arm_publish_continuous(left0, right0)
-                        time.sleep(1)
+                        input("Press enter to continue")
                         break  # Break inner loop to restart
                     elif result == "quit":
                         return  # Exit the function entirely
