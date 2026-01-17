@@ -106,3 +106,7 @@ class Pi0Config(_model.BaseModelConfig):
         if not filters:
             return nnx.Nothing
         return nnx.All(*filters)
+
+    def get_freeze_filter_vit(self) -> nnx.filterlib.Filter:
+        """Freeze the ViT model parameters."""
+        return nnx_utils.PathRegex(".*img.*")

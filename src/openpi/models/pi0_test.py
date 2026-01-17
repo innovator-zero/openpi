@@ -44,3 +44,18 @@ def test_pi0_all_lora():
     assert len(state) == 17
     assert all("lora" not in p for p in state)
     assert all("llm" in p for p in state)
+
+
+def _get_frozen_state_vit(config: _pi0_config.Pi0Config) -> nnx.State:
+    abstract_model = nnx.eval_shape(config.create, jax.random.key(0))
+
+    freeze_filter = config.get_freeze_filter_vit()
+    return nnx.state(abstract_model, nnx.All(nnx.Param, freeze_filter)).flat_state()
+
+
+def test_pi0_freeze_vit():
+    config = _pi0_config.Pi0Config(pi05=True)
+    state = _get_frozen_state_vit(config)
+    print(state.keys())
+    assert all("img" in p for p in state)
+    assert all("llm" not in p for p in state)
