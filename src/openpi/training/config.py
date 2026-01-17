@@ -21,6 +21,7 @@ import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.agilex_policy as agilex_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.libero_policy as libero_policy
+import openpi.policies.calvin_policy as calvin_policy
 import openpi.shared.download as _download
 import openpi.shared.normalize as _normalize
 import openpi.training.droid_rlds_dataset as droid_rlds_dataset
@@ -524,6 +525,48 @@ class LeRobotAgilexDataConfig(DataConfigFactory):
 
 
 @dataclasses.dataclass(frozen=True)
+class LeRobotCalvinDataConfig(DataConfigFactory):
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        repack_transform = _transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "image": "video.image_base",
+                        # "wrist_image": "video.image_wrist",
+                        "state_ee_pos": "state.ee_pos",
+                        "state_ee_rot": "state.ee_rot",
+                        "state_gripper": "state.gripper",
+                        "action_delta_ee_pos": "action.delta_ee_pos",
+                        "action_delta_ee_rot": "action.delta_ee_rot",
+                        "action_gripper": "action.gripper",
+                        "prompt": "prompt",
+                    }
+                )
+            ]
+        )
+
+        # Action keys that will be used to read the action sequence from the dataset.
+        action_sequence_keys: Sequence[str] = ("action.delta_ee_pos", "action.delta_ee_rot", "action.gripper")
+
+        data_transforms = _transforms.Group(
+            inputs=[calvin_policy.CalvinInputs(model_type=model_config.model_type)],
+            outputs=[calvin_policy.CalvinOutputs()],
+        )
+
+        model_transforms = ModelTransformFactory()(model_config)
+
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=repack_transform,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=action_sequence_keys,
+            use_quantile_norm=False,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
 class LeRobotAgxDataConfig(DataConfigFactory):
     # If true, will convert joint dimensions to deltas with respect to the current state before passing to the model.
     # Gripper dimensions will remain in absolute values.
@@ -926,6 +969,19 @@ _CONFIGS = [
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         pytorch_weight_path="/mnt/models/openpi-assets/checkpoints/pi05_base_pytorch",
         num_train_steps=30_000,
+    ),
+    TrainConfig(
+        name="pi05_calvin_xz",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=4, discrete_state_input=False),
+        data=LeRobotCalvinDataConfig(
+            repo_id="/mnt/data/lerobot/test/InternData-Calvin_ABC",
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        batch_size=256,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=50_000,
+        freeze_filter=pi0_config.Pi0Config(pi05=True, discrete_state_input=False).get_freeze_filter_vit(),
+        num_workers=8,
     ),
     #
     # Fine-tuning Aloha configs.
